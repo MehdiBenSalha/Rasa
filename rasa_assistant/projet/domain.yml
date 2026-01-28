@@ -26,3 +26,10 @@ responses:
           {{history}}
           {{current_input}}
           Suggested AI Response:
+
+
+actions:
+  - action_check_sufficient_funds
+  - action_get_ingredients
+  - action_get_instructions
+  - action_utter_recipe_complete

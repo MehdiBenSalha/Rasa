@@ -4,7 +4,7 @@ flows:
     steps:
       - collect: recipe
         description: the name of the recipe
-      - action : get_ingredients
-      - action : get_instructions
-      #- action : get_image
-      - action: utter_recipe_complete
+      - action : action_get_ingredients
+      - action : action_get_instructions
+      #- action : action_get_image
+      - action: action_utter_recipe_complete
