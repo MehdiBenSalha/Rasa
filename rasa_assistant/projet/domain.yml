@@ -5,6 +5,10 @@ slots:
     type: text
     mappings:
       - type: from_llm
+  ingredients:
+    type: text
+    mappings:
+      - type: from_llm
 
 responses:
   utter_ask_recipe:
@@ -33,3 +37,4 @@ actions:
   - action_get_ingredients
   - action_get_instructions
   - action_utter_recipe_complete
+  - action_suggest_recipes
