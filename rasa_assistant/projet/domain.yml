@@ -6,7 +6,7 @@ slots:
     mappings:
       - type: from_llm
   ingredients:
-    type: text
+    type: list
     mappings:
       - type: from_llm
 
@@ -16,6 +16,10 @@ responses:
 
   utter_recipe_complete:
     - text: "Enjoy eating the {recette} !"
+
+  utter_ask_ingredients:
+    - text: "Which ingredients do you have? Please list them separated by commas !"
+
 
   utter_free_chitchat_response:
     - text: "placeholder"
