@@ -2,14 +2,19 @@ flows:
   return_based_on_recipe:
     description: Help the user cook the recipe.
     steps:
+      - collect: dietary_restrictions
+        description: dietary restrictions
       - collect: recipe
         description: the name of the recipe
       - action : action_get_ingredients
       - action : action_get_instructions
       - action: action_utter_recipe_complete
+  
   recipes_from_ingredients:
     description: Suggest recipes based on ingredients and return to recipe flow.
     steps:
+    - collect: dietary_restrictions
+      description: dietary restrictions
     - collect: ingredients
       description: ingredients provided by the user
     - action: action_suggest_recipes

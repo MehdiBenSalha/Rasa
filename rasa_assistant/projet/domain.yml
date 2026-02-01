@@ -9,6 +9,10 @@ slots:
     type: list
     mappings:
       - type: from_llm
+  dietary_restrictions:
+    type: list
+    mappings:
+      - type: from_llm
 
 responses:
   utter_ask_recipe:
@@ -20,6 +24,8 @@ responses:
   utter_ask_ingredients:
     - text: "Which ingredients do you have? Please list them separated by commas !"
 
+  utter_ask_dietary_restrictions:
+    - text: "Do you have any dietary restrictions ? (e.g. vegetarian, vegan, halal, gluten-free). If none, say no."
 
   utter_free_chitchat_response:
     - text: "placeholder"
@@ -37,7 +43,6 @@ responses:
 
 
 actions:
-  - action_check_sufficient_funds
   - action_get_ingredients
   - action_get_instructions
   - action_utter_recipe_complete

@@ -11,6 +11,48 @@ DATA_PATH = BASE_DIR / "RAW_recipes.csv"
 df_recipes = pd.read_csv(DATA_PATH)  
 
 
+from typing import List, Dict
+
+def recipe_matches_restrictions(recipe_row, restrictions: List[str]) -> bool:
+    if not restrictions:
+        return True
+
+    restrictions = [r.lower() for r in restrictions]
+    ingredients_str = recipe_row.iloc[0]["ingredients"] 
+    ingredients_list = [i.strip() for i in ingredients_str.split(",")]
+    
+    # On definit un dictionnaire des ingredients restreint pour les restrictions alimentaires les plus communs
+    forbidden_map: Dict[str, List[str]] = {
+        "vegetarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey", "fish", "shrimp", "gelatin"],
+        "vegan": ["milk", "cheese", "egg", "butter", "honey", "cream", "yogurt", "whey", "chicken", "beef", "pork", "fish", "lard"],
+        "halal": ["pork", "bacon", "ham", "lard", "gelatin", "alcohol", "wine", "beer"],
+        "gluten-free": ["flour", "wheat", "barley", "rye", "bread", "pasta", "couscous", "semolina", "malt"],
+        "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "casein", "lactose"],
+        "pescatarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey"],
+        "nut-free": ["peanut", "almond", "walnut", "cashew", "pecan", "hazelnut", "pistachio"],
+        "lactose-intolerant": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "curds", "lactose", "casein", "malted milk", "milk powder", "condensed milk", "evaporated milk", "sour cream", "kefir"],
+        "kosher": ["pork", "bacon", "ham", "lard", "rabbit", "gelatin","shrimp", "crab", "lobster", "clam", "mussel", "oyster", "scallop", "eel", "squid"]
+    }
+
+    # PHASE A : Verification des ingredients
+    for r in restrictions:
+        forbidden_list = forbidden_map.get(r, [])
+        for bad_item in forbidden_list:
+            if bad_item in ingredients_list:
+                # On a trouvé un ingredient restreint, on retourne false
+                return False
+
+    # --- PHASE B : Verifier les tags
+    if "tags" in recipe_row:
+        tags = [t.strip().lower() for t in str(recipe_row["tags"]).split(",")]
+        for r in restrictions:
+            if r not in tags:
+                # Si on ne trouve pas un des tags attendus on retourne false
+                return False
+
+    return True
+
+
 class ActionGetIngredients(Action):
     def name(self) -> Text:
         return "action_get_ingredients"
@@ -29,10 +71,19 @@ class ActionGetIngredients(Action):
         if recipe_row.empty:
             dispatcher.utter_message(f"Sorry, I couldn't find the recipe '{recipe_name}'.")
             return []
+        
+        # Recuperer les restrictions alimentaires de l'utilisateur
+        restrictions = tracker.get_slot("dietary_restrictions") or []
 
         # Récupérer les ingrédients
         ingredients_str = recipe_row.iloc[0]["ingredients"] 
         ingredients_list = [i.strip() for i in ingredients_str.split(",")]
+
+        if not recipe_matches_restrictions(recipe_row, restrictions):
+            dispatcher.utter_message(
+                f"The recipe '{recipe_name}' does not respect your dietary restrictions."
+            )
+            return []
 
         dispatcher.utter_message(f"Here are the ingredients for {recipe_name}: {', '.join(ingredients_list)}")
         return []
@@ -72,11 +123,17 @@ class ActionUtterRecipeComplete(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
         dispatcher.utter_message("Your recipe is complete! Enjoy your cooking! ")
+
+
 class ActionSuggestRecipes(Action):
     def name(self) -> Text:
         return "action_suggest_recipes"
 
     def run(self, dispatcher, tracker, domain) -> List[Dict[Text, Any]]:
+
+        # récupérer le slot des restrictions alimentaires
+        restrictions = tracker.get_slot("dietary_restrictions") or []
+
         # récupérer le slot ingredients (déjà une liste)
         user_ingredients = tracker.get_slot("ingredients")
         if not user_ingredients:
@@ -89,7 +146,14 @@ class ActionSuggestRecipes(Action):
         # chercher les recettes correspondantes
         matched_recipes = []
         for idx, row in df_recipes.iterrows():
+
+            # On récupère les ingredients de chaque recette du jeu de données 
             recipe_ingredients = [i.strip().lower() for i in row["ingredients"].split(",")]
+
+            # On verifie si un des ingredients n'est pas restreint pour l'utilisateur 
+            if not recipe_matches_restrictions(row, restrictions):
+                continue
+
             common = set(user_ingredients) & set(recipe_ingredients)
             if common:
                 matched_recipes.append((row["name"], len(common)))
