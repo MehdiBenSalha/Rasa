@@ -1,1 +1,8 @@
 test
+.venv/
+models
+__pycache__/
+.rasa/cache/*
+.rasa/cache/cache.db
+.rasa
+*.csv

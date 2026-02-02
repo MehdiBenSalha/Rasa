@@ -5,16 +5,18 @@ from rasa_sdk import Action, Tracker
 from rasa_sdk.events import SlotSet
 from rasa_sdk.executor import CollectingDispatcher
 
+from rapidfuzz import process, fuzz
+
 from pathlib import Path 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_PATH = BASE_DIR / "RAW_recipes.csv"
+DATA_PATH = BASE_DIR / "test.csv"
 df_recipes = pd.read_csv(DATA_PATH)  
 
 
 from typing import List, Dict
 
 def recipe_matches_restrictions(recipe_row, restrictions: List[str]) -> bool:
-    if not restrictions:
+    if not restrictions or restrictions == "no":
         return True
 
     restrictions = [r.lower() for r in restrictions]
@@ -65,7 +67,11 @@ class ActionGetIngredients(Action):
     ) -> List[Dict[Text, Any]]:
         recipe_name = tracker.get_slot("recipe")
 
-        # Chercher la recette dans le CSV
+        all_recipe_names = df_recipes["name"].tolist()
+        closest_match = process.extractOne(recipe_name, all_recipe_names)
+        if closest_match:
+            recipe_name = closest_match[0]
+
         recipe_row = df_recipes[df_recipes["name"].str.lower() == recipe_name.lower()]
 
         if recipe_row.empty:
@@ -73,7 +79,8 @@ class ActionGetIngredients(Action):
             return []
         
         # Recuperer les restrictions alimentaires de l'utilisateur
-        restrictions = tracker.get_slot("dietary_restrictions") or []
+        restrictions = tracker.get_slot("dietary_restrictions") or ["no"]
+        print ("User restrictions:", restrictions)
 
         # Récupérer les ingrédients
         ingredients_str = recipe_row.iloc[0]["ingredients"] 
@@ -100,6 +107,11 @@ class ActionGetInstructions(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
         recipe_name = tracker.get_slot("recipe")
+        #use fuzzy matching to find the closest recipe name
+        all_recipe_names = df_recipes["name"].tolist()
+        closest_match = process.extractOne(recipe_name, all_recipe_names)
+        if closest_match:
+            recipe_name = closest_match[0]
 
         recipe_row = df_recipes[df_recipes["name"].str.lower() == recipe_name.lower()]
 
@@ -131,46 +143,49 @@ class ActionSuggestRecipes(Action):
 
     def run(self, dispatcher, tracker, domain) -> List[Dict[Text, Any]]:
 
-        # récupérer le slot des restrictions alimentaires
-        restrictions = tracker.get_slot("dietary_restrictions") or []
+        restrictions = tracker.get_slot("dietary_restrictions") or "no"
 
-        # récupérer le slot ingredients (déjà une liste)
-        user_ingredients = tracker.get_slot("ingredients")
-        if not user_ingredients:
+        user_text = tracker.get_slot("ingredients")
+        if not user_text:
             dispatcher.utter_message("Please tell me the ingredients you have.")
             return []
 
-        # nettoyer et mettre en minuscules
-        user_ingredients = [i.strip().lower() for i in user_ingredients]
+        # user_text peut être une liste ou un texte selon ton pipeline → on force en string
+        if isinstance(user_text, list):
+            user_text = ", ".join([str(x) for x in user_text if x])
+        user_text = str(user_text).strip().lower()
 
-        # chercher les recettes correspondantes
+        threshold = 60  # en texte-vs-texte, souvent plus bas que liste-vs-liste (teste 50-75)
+
         matched_recipes = []
-        for idx, row in df_recipes.iterrows():
+        for _, row in df_recipes.iterrows():
 
-            # On récupère les ingredients de chaque recette du jeu de données 
-            recipe_ingredients = [i.strip().lower() for i in row["ingredients"].split(",")]
-
-            # On verifie si un des ingredients n'est pas restreint pour l'utilisateur 
             if not recipe_matches_restrictions(row, restrictions):
                 continue
 
-            common = set(user_ingredients) & set(recipe_ingredients)
-            if common:
-                matched_recipes.append((row["name"], len(common)))
+            recipe_text = str(row.get("ingredients", "")).strip().lower()
+            if not recipe_text:
+                continue
+
+            # 3 scorers utiles en "texte vs texte"
+            score_token_set = fuzz.token_set_ratio(user_text, recipe_text)
+            score_partial = fuzz.partial_ratio(user_text, recipe_text)
+            score = max(score_token_set, score_partial)
+
+            if score >= threshold:
+                matched_recipes.append((row["name"], score))
 
         if not matched_recipes:
             dispatcher.utter_message("Sorry, I couldn't find any recipes with those ingredients.")
             return []
 
-        # trier par nombre d'ingrédients communs
         matched_recipes.sort(key=lambda x: x[1], reverse=True)
-        top_recipes = [r[0] for r in matched_recipes[:5]]
+        top = matched_recipes[:5]
 
-        # envoyer le message
         msg = "Here are some recipes you can make with your ingredients:\n"
-        for i, r in enumerate(top_recipes, 1):
-            msg += f"{i}. {r}\n"
+        for i, (name, score) in enumerate(top, 1):
+            msg += f"{i}. {name} ({score:.0f}%)\n"
         msg += "Which one would you like to prepare?"
-        dispatcher.utter_message(msg)
 
+        dispatcher.utter_message(msg)
         return []
