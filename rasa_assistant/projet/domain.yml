@@ -6,11 +6,11 @@ slots:
     mappings:
       - type: from_llm
   ingredients:
-    type: list
+    type: text
     mappings:
       - type: from_llm
   dietary_restrictions:
-    type: list
+    type: text
     mappings:
       - type: from_llm
 
