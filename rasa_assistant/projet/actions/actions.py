@@ -15,16 +15,23 @@ df_recipes = pd.read_csv(DATA_PATH)
 
 from typing import List, Dict
 
-def recipe_matches_restrictions(recipe_row, restrictions: List[str]) -> bool:
-    if not restrictions or restrictions == "no":
+def recipe_matches_restrictions(recipe_row, restrictions: Any) -> bool:
+    # 1. Si vide ou "no", on accepte la recette directement
+    if not restrictions or str(restrictions).lower() == "no":
         return True
 
-    restrictions = [r.lower() for r in restrictions]
-    ingredients_str = recipe_row.iloc[0]["ingredients"] 
+    # 2. On transforme la chaîne en liste (le fameux "split")
+    # Exemple: "vegan, gluten-free" -> ["vegan", "gluten-free"]
+    if isinstance(restrictions, str):
+        restrictions_list = [r.strip().lower() for r in restrictions.split(",")]
+    else:
+        restrictions_list = restrictions # au cas où Rasa l'enverrait déjà en liste
+
+    # Extraction des ingrédients de la ligne du CSV
+    ingredients_str = str(recipe_row.get("ingredients", "")).lower()
     ingredients_list = [i.strip() for i in ingredients_str.split(",")]
     
-    # On definit un dictionnaire des ingredients restreint pour les restrictions alimentaires les plus communs
-    forbidden_map: Dict[str, List[str]] = {
+    forbidden_map = {
         "vegetarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey", "fish", "shrimp", "gelatin"],
         "vegan": ["milk", "cheese", "egg", "butter", "honey", "cream", "yogurt", "whey", "chicken", "beef", "pork", "fish", "lard"],
         "halal": ["pork", "bacon", "ham", "lard", "gelatin", "alcohol", "wine", "beer"],
@@ -36,20 +43,18 @@ def recipe_matches_restrictions(recipe_row, restrictions: List[str]) -> bool:
         "kosher": ["pork", "bacon", "ham", "lard", "rabbit", "gelatin","shrimp", "crab", "lobster", "clam", "mussel", "oyster", "scallop", "eel", "squid"]
     }
 
-    # PHASE A : Verification des ingredients
-    for r in restrictions:
+    # PHASE A : On vérifie chaque restriction du split
+    for r in restrictions_list:
         forbidden_list = forbidden_map.get(r, [])
         for bad_item in forbidden_list:
             if bad_item in ingredients_list:
-                # On a trouvé un ingredient restreint, on retourne false
-                return False
+                return False # On rejette si UN ingrédient interdit est trouvé
 
-    # --- PHASE B : Verifier les tags
-    if "tags" in recipe_row:
-        tags = [t.strip().lower() for t in str(recipe_row["tags"]).split(",")]
-        for r in restrictions:
-            if r not in tags:
-                # Si on ne trouve pas un des tags attendus on retourne false
+    # PHASE B : Vérification des tags
+    if "tags" in recipe_row and not pd.isna(recipe_row["tags"]):
+        recipe_tags = [t.strip().lower() for t in str(recipe_row["tags"]).split(",")]
+        for r in restrictions_list:
+            if r in forbidden_map and r not in recipe_tags:
                 return False
 
     return True
