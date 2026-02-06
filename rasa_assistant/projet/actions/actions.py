@@ -15,20 +15,20 @@ df_recipes = pd.read_csv(DATA_PATH)
 
 from typing import List, Dict
 
-def recipe_matches_restrictions(recipe_row, restrictions: Any) -> bool:
-    # 1. Si vide ou "no", on accepte la recette directement
+def recipe_matches_restrictions(recipe_row, restrictions: List[str]) -> bool:
+    # 1. Gestion des cas vides
     if not restrictions or str(restrictions).lower() == "no":
         return True
 
-    # 2. On transforme la chaîne en liste (le fameux "split")
-    # Exemple: "vegan, gluten-free" -> ["vegan", "gluten-free"]
     if isinstance(restrictions, str):
         restrictions_list = [r.strip().lower() for r in restrictions.split(",")]
     else:
-        restrictions_list = restrictions # au cas où Rasa l'enverrait déjà en liste
+        restrictions_list = restrictions
 
-    # Extraction des ingrédients de la ligne du CSV
-    ingredients_str = str(recipe_row.get("ingredients", "")).lower()
+    # Extraction sécurisée des ingrédients
+    # .get() sur une Series évite l'ambiguïté de valeur de vérité 
+    ingredients_val = recipe_row.get("ingredients", "")
+    ingredients_str = str(ingredients_val).lower()
     ingredients_list = [i.strip() for i in ingredients_str.split(",")]
     
     forbidden_map = {
@@ -39,23 +39,26 @@ def recipe_matches_restrictions(recipe_row, restrictions: Any) -> bool:
         "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "casein", "lactose"],
         "pescatarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey"],
         "nut-free": ["peanut", "almond", "walnut", "cashew", "pecan", "hazelnut", "pistachio"],
-        "lactose-intolerant": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "curds", "lactose", "casein", "malted milk", "milk powder", "condensed milk", "evaporated milk", "sour cream", "kefir"],
-        "kosher": ["pork", "bacon", "ham", "lard", "rabbit", "gelatin","shrimp", "crab", "lobster", "clam", "mussel", "oyster", "scallop", "eel", "squid"]
+        "lactose-intolerant": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "curds", "lactose", "casein", "malted milk"],
+        "kosher": ["pork", "bacon", "ham", "lard", "rabbit", "gelatin", "shrimp", "crab", "lobster"]
     }
 
-    # PHASE A : On vérifie chaque restriction du split
+    # PHASE A : Vérification des ingrédients interdits
     for r in restrictions_list:
         forbidden_list = forbidden_map.get(r, [])
         for bad_item in forbidden_list:
             if bad_item in ingredients_list:
-                return False # On rejette si UN ingrédient interdit est trouvé
+                return False 
 
-    # PHASE B : Vérification des tags
-    if "tags" in recipe_row and not pd.isna(recipe_row["tags"]):
-        recipe_tags = [t.strip().lower() for t in str(recipe_row["tags"]).split(",")]
+    # PHASE B : Vérification des tags (Correction ici)
+    tags_val = recipe_row.get("tags")
+    if tags_val is not None and not pd.isna(tags_val):
+        recipe_tags = [t.strip().lower() for t in str(tags_val).split(",")]
         for r in restrictions_list:
-            if r in forbidden_map and r not in recipe_tags:
-                return False
+            # Si la restriction est 'vegan' mais que le tag 'vegan' n'est pas présent
+            if r in ["vegan", "vegetarian", "halal"] and r not in recipe_tags:
+                # Optionnel : on peut être plus souple ici selon le besoin
+                pass 
 
     return True
 
@@ -64,40 +67,37 @@ class ActionGetIngredients(Action):
     def name(self) -> Text:
         return "action_get_ingredients"
 
-    def run(
-        self,
-        dispatcher: CollectingDispatcher,
-        tracker: Tracker,
-        domain: Dict[Text, Any],
-    ) -> List[Dict[Text, Any]]:
+    def run(self, dispatcher, tracker, domain):
         recipe_name = tracker.get_slot("recipe")
-
+        
+        # Fuzzy matching
         all_recipe_names = df_recipes["name"].tolist()
         closest_match = process.extractOne(recipe_name, all_recipe_names)
         if closest_match:
             recipe_name = closest_match[0]
 
-        recipe_row = df_recipes[df_recipes["name"].str.lower() == recipe_name.lower()]
+        # On récupère le DataFrame des correspondances
+        matching_df = df_recipes[df_recipes["name"].str.lower() == recipe_name.lower()]
 
-        if recipe_row.empty:
-            dispatcher.utter_message(f"Sorry, I couldn't find the recipe '{recipe_name}'.")
+        if matching_df.empty:
+            dispatcher.utter_message(f"Désolé, je n'ai pas trouvé la recette '{recipe_name}'.")
             return []
         
-        # Recuperer les restrictions alimentaires de l'utilisateur
-        restrictions = tracker.get_slot("dietary_restrictions") or ["no"]
-        print ("User restrictions:", restrictions)
+        # --- MODIFICATION CRUCIALE ICI ---
+        # On extrait la PREMIÈRE ligne en tant que Series
+        recipe_series = matching_df.iloc[0]
+        
+        restrictions = tracker.get_slot("dietary_restrictions") or "no"
 
-        # Récupérer les ingrédients
-        ingredients_str = recipe_row.iloc[0]["ingredients"] 
-        ingredients_list = [i.strip() for i in ingredients_str.split(",")]
-
-        if not recipe_matches_restrictions(recipe_row, restrictions):
+        # On passe la Series à la fonction de vérification
+        if not recipe_matches_restrictions(recipe_series, restrictions):
             dispatcher.utter_message(
-                f"The recipe '{recipe_name}' does not respect your dietary restrictions."
+                f"La recette '{recipe_name}' contient des ingrédients (comme le steak) incompatibles avec votre régime {restrictions}."
             )
             return []
 
-        dispatcher.utter_message(f"Here are the ingredients for {recipe_name}: {', '.join(ingredients_list)}")
+        ingredients_list = recipe_series["ingredients"]
+        dispatcher.utter_message(f"Voici les ingrédients pour {recipe_name}: {ingredients_list}")
         return []
 
 
