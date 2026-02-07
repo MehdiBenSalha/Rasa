@@ -13,6 +13,18 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "RAW_recipes.csv"
 df_recipes = pd.read_csv(DATA_PATH)  
 
+def parse(val):
+    try:
+        return [i.strip().lower() for i in ast.literal_eval(val)]
+    except Exception:
+        return [i.strip().lower() for i in str(val).split(",")]
+
+# Precalculer les ingredients et les instructions pour passer d'une chaine de caracteres "[ingredients]" à une liste [ingredients]
+df_recipes["ingredients_list"] = df_recipes["ingredients"].apply(parse)
+df_recipes["ingredients_text"] = df_recipes["ingredients_list"].apply(lambda x: " ".join(x))
+df_recipes["steps_list"] = df_recipes["steps"].apply(parse)
+
+
 
 from typing import List, Dict
 
@@ -26,15 +38,9 @@ def recipe_matches_restrictions(recipe_row, restrictions: str) -> bool:
     else:
         restrictions_list = restrictions
 
-    # Extraction sécurisée des ingrédients
-    # .get() sur une Series évite l'ambiguïté de valeur de vérité 
-    ingredients_val = recipe_row.get("ingredients", "")
+    # Extraction des ingrédients
+    ingredients_list = recipe_row["ingredients_list"]
 
-    try:
-        ingredients_list = ast.literal_eval(ingredients_val)
-    except Exception:
-        ingredients_list = str(ingredients_val).split(",")
-    
     forbidden_map = {
         "vegetarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey", "fish", "shrimp", "gelatin"],
         "vegan": ["milk", "cheese", "egg", "butter", "honey", "cream", "yogurt", "whey", "chicken", "beef", "pork", "fish", "lard"],
@@ -98,19 +104,12 @@ class ActionGetIngredients(Action):
             )
             return []
 
-        raw_ingredients = recipe_series["ingredients"]
-
-        try:
-            # Convertir le string "[ingredients]" à la liste [ingredients]
-            ingredients_list = ast.literal_eval(raw_ingredients)
-        except Exception:
-            # fallback si pas bien formatté
-            ingredients_list = [i.strip() for i in str(raw_ingredients).split(",")]
+        ingredients_list = recipe_series["ingredients_list"]
         
         formatted_ingredients = "\n".join([f"- {ing}" for ing in ingredients_list])
 
         dispatcher.utter_message(
-            f"Here are the ingredients for {recipe_name}:\n{', '.join(formatted_ingredients)}"
+            text=f"Here are the ingredients for {recipe_name}:\n{formatted_ingredients}"
         )
 
         return []
@@ -139,15 +138,8 @@ class ActionGetInstructions(Action):
             dispatcher.utter_message(f"Sorry, I couldn't find the recipe '{recipe_name}'.")
             return []
 
-        # Extraire la liste des instructions (sous forme de string "[instructions]")
-        raw_steps = recipe_row.iloc[0]["steps"]
-
-        # Convertir le string des instructions en une liste "[instructions]" => [instructions]
-        try:
-            steps_list = ast.literal_eval(raw_steps)
-        except (ValueError, SyntaxError):
-            # Fallback
-            steps_list = [raw_steps]
+        # Extraire la liste des instructions
+        steps_list = recipe_row.iloc[0]["steps_list"]
 
         # Formatter avec une dash et retour à la ligne apres chaque instruction
         formatted_instructions = "\n".join([f"- {step}" for step in steps_list])
@@ -166,7 +158,7 @@ class ActionUtterRecipeComplete(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        dispatcher.utter_message("Your recipe is complete! Enjoy your cooking! ")
+        dispatcher.utter_message("Enjoy your cooking! ")
 
 
 class ActionSuggestRecipes(Action):
@@ -182,7 +174,9 @@ class ActionSuggestRecipes(Action):
             dispatcher.utter_message("Please tell me the ingredients you have.")
             return []
 
-        user_text = str(user_text).strip().lower()
+        user_ingredients = [i.strip().lower() for i in user_text.split(",")]
+
+        user_set = set(user_ingredients)
 
         threshold = 60  # Seuil pour le score minimale acceptable (pour selectionner le recipe ayant le plus d'ingredients en commun avec ce que l'utilisateur dispose déja)
 
@@ -193,8 +187,10 @@ class ActionSuggestRecipes(Action):
             if not recipe_matches_restrictions(row, restrictions):
                 continue
 
-            recipe_text = str(row.get("ingredients", "")).strip().lower()
-            if not recipe_text:
+            recipe_ingredients = row["ingredients_list"]
+            recipe_text = row["ingredients_text"]
+
+            if not recipe_ingredients:
                 continue
 
             # 3 scorers utiles en "texte vs texte"
@@ -203,7 +199,11 @@ class ActionSuggestRecipes(Action):
             score = max(score_token_set, score_partial)
 
             if score >= threshold:
-                matched_recipes.append((row["name"], score))
+                missing = set(recipe_ingredients) - user_set # compter les ingredients manquants
+                matched_recipes.append(
+                    (row["name"], score, len(missing))
+                )
+
 
         if not matched_recipes:
             dispatcher.utter_message("Sorry, I couldn't find any recipes with those ingredients.")
@@ -214,9 +214,9 @@ class ActionSuggestRecipes(Action):
         top = matched_recipes[:5] 
 
         msg = "Here are some recipes you can make with your ingredients:\n"
-        for i, (name, score) in enumerate(top, 1):
-            msg += f"{i}. {name} ({score:.0f}%)\n"
-        msg += "Which one would you like to prepare?"
+
+        for i, (name, score, missing_count) in enumerate(top, 1):
+            msg += f"{i}. {name} ({missing_count} ingredient(s) missing)\n"
 
         dispatcher.utter_message(msg)
         return []

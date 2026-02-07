@@ -13,6 +13,10 @@ slots:
     type: text
     mappings:
       - type: from_llm
+  wants_instructions:
+    type: bool
+    mappings:
+      - type: from_llm
 
 responses:
   utter_ask_recipe:
@@ -26,6 +30,12 @@ responses:
 
   utter_ask_dietary_restrictions:
     - text: "Do you have any dietary restrictions ? (e.g. vegetarian, vegan, halal, gluten-free). If none, say no."
+
+  utter_ask_wants_instructions:
+      - text: "Would you like me to give you the instructions on how to prepare this recipe?"
+
+  utter_help_refused:
+      - text: "Ok, if you need any more help feel free to ask me!"
 
   utter_free_chitchat_response:
     - text: "placeholder"
