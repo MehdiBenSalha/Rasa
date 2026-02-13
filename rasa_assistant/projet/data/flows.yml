@@ -1,44 +1,66 @@
 flows:
-  return_based_on_recipe:
-    description: Help the user cook the recipe.
+  main_cooking_flow:
+    description: Main entry point - asks for dietary restrictions once, then routes to sub-flows
     steps:
       - collect: dietary_restrictions
-        description: dietary restrictions
+        description: dietary restrictions (asked once at start)
+      - collect: cooking_choice
+        description: ask if user wants to search by recipe name or by ingredients
+        next:
+          - if: slots.cooking_choice == "recipe" or slots.cooking_choice == "1" or slots.cooking_choice == "name" or slots.cooking_choice == "recipe name" or slots.cooking_choice == "by recipe"
+            then:
+              - link: return_based_on_recipe
+          - else:
+            - link: recipes_from_ingredients
+
+  return_based_on_recipe:
+    description: Help the user cook a recipe by name (restrictions already collected in main flow)
+    steps:
       - collect: recipe
         description: the name of the recipe
-      - action : action_get_ingredients
-      - collect: wants_instructions
-        description: ask if they want instructions
+      - action: action_get_ingredients
         next:
-          - if: slots.wants_instructions
+          - if: slots.recipe_valid
             then:
-              - action: action_get_instructions
-              - action: action_utter_recipe_complete
-                next : END
+              - collect: wants_instructions
+                description: ask if they want instructions
+                next:
+                  - if: slots.wants_instructions
+                    then:
+                      - action: action_get_instructions
+                      - action: action_utter_recipe_complete
+                        next: END
+                  - else:
+                    - action: utter_help_refused
+                      next: END
           - else:
             - action: utter_help_refused
-              next : END
+              next: END
   
   recipes_from_ingredients:
-    description: Suggest recipes based on ingredients and return to recipe flow.
+    description: Suggest recipes based on ingredients (restrictions already collected in main flow)
     steps:
-    - collect: dietary_restrictions
-      description: dietary restrictions
-    - collect: ingredients
-      description: ingredients provided by the user
-    - action: action_suggest_recipes
-    - collect: recipe
-      description: recipe chosen by the user
-    - action : action_get_ingredients
-    - collect: wants_instructions
-      description: ask if they want instructions
-      next:
-        - if: slots.wants_instructions
-          then:
-            - action: action_get_instructions
-            - action: action_utter_recipe_complete
-              next : END
-        - else:
-          - action: utter_help_refused
-            next : END
+      - collect: ingredients
+        description: ingredients provided by the user
+      - action: action_suggest_recipes
+      - collect: recipe
+        description: recipe chosen by the user
+      - action: action_get_ingredients
+        next:
+          - if: slots.recipe_valid
+            then:
+              - collect: wants_instructions
+                description: ask if they want instructions
+                next:
+                  - if: slots.wants_instructions
+                    then:
+                      - action: action_get_instructions
+                      - action: action_utter_recipe_complete
+                        next: END
+                  - else:
+                    - action: utter_help_refused
+                      next: END
+          - else:
+            - action: utter_help_refused
+              next: END
     
