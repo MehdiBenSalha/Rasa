@@ -13,29 +13,52 @@ slots:
     type: text
     mappings:
       - type: from_llm
+  cooking_choice:
+    type: text
+    mappings:
+      - type: from_llm
   wants_instructions:
     type: bool
     mappings:
       - type: from_llm
+  recipe_valid:
+    type: bool
+    mappings:
+      - type: custom
+  suggested_recipes:
+    type: text
+    mappings:
+      - type: custom
 
 responses:
   utter_ask_recipe:
-    - text: "What do you want to cook ?"
+    - text: "What do you want to cook?"
+
+  utter_ask_cooking_choice:
+    - text: "How would you like to search for recipes? (type 'recipe' or 'ingredients')"
+      buttons:
+        - title: "By Recipe Name"
+          payload: "recipe"
+        - title: "By Ingredients"
+          payload: "ingredients"
 
   utter_recipe_complete:
-    - text: "Enjoy eating the {recette} !"
+    - text: "Enjoy eating the {recipe}!"
 
   utter_ask_ingredients:
-    - text: "Which ingredients do you have? Please list them separated by commas !"
+    - text: "Which ingredients do you have? Please list them separated by commas."
 
   utter_ask_dietary_restrictions:
-    - text: "Do you have any dietary restrictions ? (e.g. vegetarian, vegan, halal, gluten-free). If none, say no."
+    - text: "Do you have any dietary restrictions? (e.g. vegetarian, vegan, halal, gluten-free). If none, say no."
 
   utter_ask_wants_instructions:
-      - text: "Would you like me to give you the instructions on how to prepare this recipe?"
+    - text: "Would you like me to give you the instructions on how to prepare this recipe?"
 
   utter_help_refused:
-      - text: "Ok, if you need any more help feel free to ask me!"
+    - text: "Ok, if you need any more help feel free to ask me!"
+
+  utter_ask_another_recipe:
+    - text: "Would you like to cook another recipe? (say yes or no)"
 
   utter_free_chitchat_response:
     - text: "placeholder"
