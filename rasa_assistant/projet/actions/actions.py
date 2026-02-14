@@ -135,43 +135,54 @@ class ActionGetIngredients(Action):
                     logger.error("Failed to parse suggested recipes")
                     pass
         
-        # Fuzzy matching - perform search only once and cache result
+        # Fuzzy matching - get top 10 matches and check each one's restrictions
         all_recipe_names = df_recipes["name"].tolist()
-        closest_match = process.extractOne(recipe_name, all_recipe_names)
-        logger.debug(f"Recipe search: {recipe_name} -> {closest_match}")
-        if closest_match:
-            recipe_name = closest_match[0]  # Use fuzzy match to handle typos
-
-        # On récupère le DataFrame des correspondances
-        matching_df = df_recipes[df_recipes["name"].str.lower() == recipe_name.lower()]
-
-        if matching_df.empty:
+        top_matches = process.extract(recipe_name, all_recipe_names, limit=10)
+        logger.debug(f"Recipe search for '{recipe_name}': found {len(top_matches)} top matches")
+        
+        if not top_matches:
             msg = f"Sorry, I couldn't find the recipe '{recipe_name}'. Try another recipe or search by ingredients."
             dispatcher.utter_message(msg)
             logger.warning(f"Recipe not found: {recipe_name}")
             return [SlotSet("recipe_valid", False)]
         
-        # On extrait la PREMIÈRE ligne en tant que Series
-        recipe_series = matching_df.iloc[0]
-        
         restrictions = tracker.get_slot("dietary_restrictions") or "no"
-
-        # On passe la Series à la fonction de vérification
-        if not recipe_matches_restrictions(recipe_series, restrictions):
-            dispatcher.utter_message(
-                f"The recipe '{recipe_name}' does not respect your dietary restrictions : {restrictions}."
-            )
-            return [SlotSet("recipe_valid", False)]
-
-        # Recipe passed validation - extract and display ingredients
-        ingredients_list = recipe_series["ingredients_list"]
-        formatted_ingredients = "\n".join([f"- {ing}" for ing in ingredients_list])
         
+        # Try each recipe from the top 10 matches
+        for match_data in top_matches:
+            match_name = match_data[0]
+            match_score = match_data[1]
+            
+            matching_df = df_recipes[df_recipes["name"].str.lower() == match_name.lower()]
+            
+            if matching_df.empty:
+                continue
+            
+            recipe_series = matching_df.iloc[0]
+            
+            # Check if this recipe matches the restrictions
+            if recipe_matches_restrictions(recipe_series, restrictions):
+                # Found a valid recipe!
+                closest_match = (match_name, match_score)
+                recipe_name = match_name
+                logger.info(f"Recipe found after checking {top_matches.index(match_data) + 1} matches: {recipe_name}")
+                
+                # Recipe passed validation - extract and display ingredients
+                ingredients_list = recipe_series["ingredients_list"]
+                formatted_ingredients = "\n".join([f"- {ing}" for ing in ingredients_list])
+                
+                dispatcher.utter_message(
+                    text=f"Here are the ingredients for {recipe_name}:\n{formatted_ingredients}"
+                )
+                logger.info(f"Recipe '{recipe_name}' validated and ingredients shown")
+                return [SlotSet("recipe_valid", True)]
+        
+        # None of the top 10 matches respect the restrictions
         dispatcher.utter_message(
-            text=f"Here are the ingredients for {recipe_name}:\n{formatted_ingredients}"
+            f"Sorry, I couldn't find a recipe matching '{recipe_name}' that respects your dietary restrictions: {restrictions}. Try a different recipe or adjust your restrictions."
         )
-        logger.info(f"Recipe '{recipe_name}' validated and ingredients shown")
-        return [SlotSet("recipe_valid", True)]
+        logger.warning(f"No recipes matching '{recipe_name}' found with restrictions: {restrictions}")
+        return [SlotSet("recipe_valid", False)]
 
 
 class ActionGetInstructions(Action):
