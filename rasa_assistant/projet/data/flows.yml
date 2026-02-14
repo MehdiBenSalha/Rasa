@@ -1,9 +1,7 @@
 flows:
   main_cooking_flow:
     description: Main entry point - asks for dietary restrictions once, then routes to sub-flows
-    steps:
-      - collect: dietary_restrictions
-        description: dietary restrictions (asked once at start)
+    steps: 
       - collect: cooking_choice
         description: ask if user wants to search by recipe name or by ingredients
         next:
@@ -16,6 +14,8 @@ flows:
   return_based_on_recipe:
     description: Help the user cook a recipe by name (restrictions already collected in main flow)
     steps:
+      - collect: dietary_restrictions
+        description: dietary restrictions
       - collect: recipe
         description: the name of the recipe
       - action: action_get_ingredients
@@ -38,7 +38,7 @@ flows:
               next: END
   
   recipes_from_ingredients:
-    description: Suggest recipes based on ingredients (restrictions already collected in main flow)
+    description: Suggest recipes based on ingredients 
     steps:
       - collect: ingredients
         description: ingredients provided by the user
