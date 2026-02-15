@@ -26,12 +26,15 @@ slots:
     mappings:
       - type: custom
   suggested_recipes:
-    type: text
+    type: any
     mappings:
       - type: custom
 
 responses:
   utter_ask_recipe:
+    - text: "Type the number (1-5) of the recipe you want to cook."
+
+  utter_ask_recipe_name:
     - text: "What do you want to cook?"
 
   utter_ask_cooking_choice:
@@ -60,6 +63,12 @@ responses:
   utter_ask_another_recipe:
     - text: "Would you like to cook another recipe? (say yes or no)"
 
+  utter_recipe_not_found:
+    - text: "I couldn't find a matching recipe. Try another recipe name or search by ingredients."
+
+  utter_anything_else:
+    - text: "Would you like to cook something else?"
+
   utter_free_chitchat_response:
     - text: "placeholder"
       metadata:
@@ -73,7 +82,14 @@ responses:
           {{history}}
           {{current_input}}
           Suggested AI Response:
+  utter_ask_continue_conversation:
+    - text: "Would you like to cook something else? (yes/no)"
 
+  utter_can_do_something_else:
+    - text: "Tell me what you'd like to cook, or type 'ingredients' to search by ingredients."
+
+  utter_ask_rephrase:
+    - text: "Sorry, I didn't get that. Please reply with yes or no."
 
 actions:
   - action_get_ingredients
