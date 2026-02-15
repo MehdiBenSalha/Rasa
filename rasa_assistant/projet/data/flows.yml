@@ -27,14 +27,15 @@ flows:
               - collect: wants_instructions
                 description: ask if they want instructions
                 next:
-                  - if: slots.wants_instructions
+                  - if: slots.wants_instructions == "yes"
                     then:
                       - action: action_get_instructions
                       - action: action_utter_recipe_complete
-                        next: END
+                      
+                      - link: continue_flow
                   - else:
-                    - action: utter_ask_continue_conversation
-                      next: END
+                        - link: continue_flow
+
           - else:
             - action: utter_recipe_not_found
               next: END
@@ -56,15 +57,28 @@ flows:
               - collect: wants_instructions
                 description: ask if they want instructions
                 next:
-                  - if: slots.wants_instructions
+                  - if: slots.wants_instructions == "yes"
                     then:
                       - action: action_get_instructions
                       - action: action_utter_recipe_complete
-                        next: END
+                        
+                      - link: continue_flow
+
                   - else:
-                    - action: utter_ask_continue_conversation
-                      next: END
+                    - link: continue_flow
           - else:
             - action: utter_recipe_not_found
               next: END
-    
+  continue_flow:
+    description: Ask user if they want another recipe and route accordingly
+    steps:
+      - collect: continue_conversation
+        utter: utter_ask_continue_conversation
+        next:
+          - if: slots.continue_conversation == true
+            then:
+              - action: action_reset_recipe_context
+              - link: main_cooking_flow
+          - else:
+              - action: utter_help_refused
+                next: END

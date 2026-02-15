@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 from typing import Any, Dict, List, Text
 import logging
@@ -47,6 +48,24 @@ closest_match = None  # Cache recipe fuzzy match result to avoid duplicate searc
 
 from typing import List, Dict
 
+def forbidden_hits_ingredient(forbidden: str, ingredient: str, threshold: int = 70) -> bool:
+    f = forbidden.lower().strip()
+    ing = ingredient.lower().strip()
+
+    # tokenize ingredient (keeps only words)
+    tokens = re.findall(r"[a-z]+", ing)
+
+    # 1) If forbidden is short, require whole-word match (prevents lard ~ mustard)
+    if len(f) <= 4:
+        return f in tokens
+
+    # 2) If forbidden is multiple words, allow substring-ish match but safer
+    if " " in f:
+        return fuzz.token_set_ratio(f, ing) >= threshold
+
+    # 3) Default: partial match (good for cheese ~ cheddar cheese)
+    return fuzz.partial_ratio(f, ing) >= threshold
+
 def parse_restrictions(restrictions_str: str) -> List[str]:
     """
     Parse restrictions from user input, handling various formats:
@@ -84,7 +103,7 @@ def check_recipe_restrictions(recipe_row, restrictions: str):
 
     forbidden_map = {
         "vegetarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey", "fish", "shrimp", "gelatin"],
-        "vegan": ["milk", "cheese", "egg", "butter", "honey", "cream", "yogurt", "whey", "chicken", "beef", "pork", "fish", "lard"],
+        "vegan": ["milk", "cheese", "egg", "butter", "honey", "cream", "yogurt", "whey", "chicken", "beef", "pork", "fish", "lard","eggs"],
         "halal": ["pork", "bacon", "ham", "lard", "gelatin", "alcohol", "wine", "beer"],
         "gluten-free": ["flour", "wheat", "barley", "rye", "bread", "pasta", "couscous", "semolina", "malt"],
         "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "casein", "lactose"],
@@ -111,11 +130,9 @@ def check_recipe_restrictions(recipe_row, restrictions: str):
         # Find first forbidden hit and return an explanation
         for forbidden_ingredient in forbidden_list:
             for recipe_ingredient in ingredients_list:
-                similarity = fuzz.partial_ratio(
-                    forbidden_ingredient.lower(),
-                    str(recipe_ingredient).lower()
-                )
-                if similarity >= ingredient_match_threshold:
+                if forbidden_hits_ingredient(forbidden_ingredient, recipe_ingredient, ingredient_match_threshold):
+    
+
                     reason = (
                         f"Rejected: contains '{recipe_ingredient}' "
                         f"(matched forbidden '{forbidden_ingredient}') "
@@ -178,8 +195,8 @@ class ActionGetIngredients(Action):
 
         restrictions = tracker.get_slot("dietary_restrictions") or "no"
 
-        # 2) Fuzzy match recipe name (top 10) and pick the first that respects restrictions
-        top_matches = process.extract(recipe_name, ALL_RECIPE_NAMES, limit=10)
+        # 2) Fuzzy match recipe name (top 20) and pick the first that respects restrictions
+        top_matches = process.extract(recipe_name, ALL_RECIPE_NAMES, limit=20)
         logger.debug(f"Recipe search for '{recipe_name}': found {len(top_matches)} top matches")
 
         if not top_matches:
@@ -425,9 +442,23 @@ class ActionSuggestRecipes(Action):
         msg = "Here are some recipes you can make with your ingredients:\n"
         for i, (name, score, missing_count) in enumerate(top, 1):
             msg += f"{i}. {name} ({missing_count} ingredient(s) missing)\n"
-        msg += "\nType the number (1-5) of the recipe you want to cook."
 
         dispatcher.utter_message(text=msg)
 
         # Store as list (slot type any) OR JSON string — both are handled by ActionGetIngredients
         return [SlotSet("suggested_recipes", recipe_names)]
+
+
+class ActionResetRecipeContext(Action):
+    def name(self) -> Text:
+        return "action_reset_recipe_context"
+
+    def run(self, dispatcher, tracker, domain):
+        return [
+            SlotSet("recipe", None),
+            SlotSet("ingredients", None),
+            SlotSet("suggested_recipes", None),
+            SlotSet("wants_instructions", None),
+            SlotSet("recipe_valid", None),
+            # tu peux garder dietary_restrictions si tu veux qu'il persiste
+        ]

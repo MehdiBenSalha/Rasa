@@ -1,6 +1,10 @@
 version: "3.1"
 
 slots:
+  continue_conversation:
+    type: bool
+    mappings:
+      - type: from_llm
   recipe:
     type: text
     mappings:
@@ -18,9 +22,13 @@ slots:
     mappings:
       - type: from_llm
   wants_instructions:
-    type: bool
+    type: strict_categorical
+    values:
+      - yes
+      - no
     mappings:
       - type: from_llm
+
   recipe_valid:
     type: bool
     mappings:
@@ -96,3 +104,4 @@ actions:
   - action_get_instructions
   - action_utter_recipe_complete
   - action_suggest_recipes
+  - action_reset_recipe_context
