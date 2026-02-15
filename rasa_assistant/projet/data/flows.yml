@@ -17,6 +17,8 @@ flows:
       - collect: dietary_restrictions
         description: dietary restrictions
       - collect: recipe
+        utter: utter_ask_recipe_name
+
         description: the name of the recipe
       - action: action_get_ingredients
         next:
@@ -31,15 +33,17 @@ flows:
                       - action: action_utter_recipe_complete
                         next: END
                   - else:
-                    - action: utter_help_refused
+                    - action: utter_ask_continue_conversation
                       next: END
           - else:
-            - action: utter_help_refused
+            - action: utter_recipe_not_found
               next: END
   
   recipes_from_ingredients:
     description: Suggest recipes based on ingredients 
     steps:
+      - collect: dietary_restrictions
+        description: dietary restrictions
       - collect: ingredients
         description: ingredients provided by the user
       - action: action_suggest_recipes
@@ -58,9 +62,9 @@ flows:
                       - action: action_utter_recipe_complete
                         next: END
                   - else:
-                    - action: utter_help_refused
+                    - action: utter_ask_continue_conversation
                       next: END
           - else:
-            - action: utter_help_refused
+            - action: utter_recipe_not_found
               next: END
     

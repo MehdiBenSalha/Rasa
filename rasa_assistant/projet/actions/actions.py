@@ -36,6 +36,12 @@ df_recipes["ingredients_list"] = df_recipes["ingredients"].apply(parse)
 df_recipes["ingredients_text"] = df_recipes["ingredients_list"].apply(lambda x: " ".join(x))
 df_recipes["steps_list"] = df_recipes["steps"].apply(parse)
 
+# ✅ CACHES (1 seule fois au démarrage)
+INGREDIENTS_TEXTS = df_recipes["ingredients_text"].fillna("").astype(str).str.lower().tolist()
+ALL_RECIPE_NAMES = df_recipes["name"].fillna("").astype(str).tolist()
+# global
+
+
 # Global variables to store recipe information across actions
 closest_match = None  # Cache recipe fuzzy match result to avoid duplicate searches
 
@@ -129,20 +135,22 @@ class ActionGetIngredients(Action):
                         recipe_name = suggested_recipes[recipe_index]
                         logger.debug(f"User selected recipe #{recipe_name.strip()}: {recipe_name}")
                     else:
-                        dispatcher.utter_message(f"Invalid selection. Please choose between 1 and {len(suggested_recipes)}.")
+                        dispatcher.utter_message(text=f"Invalid selection. Please choose between 1 and {len(suggested_recipes)}.")
                         return [SlotSet("recipe_valid", False)]
                 except (json.JSONDecodeError, ValueError):
                     logger.error("Failed to parse suggested recipes")
                     pass
         
         # Fuzzy matching - get top 10 matches and check each one's restrictions
-        all_recipe_names = df_recipes["name"].tolist()
-        top_matches = process.extract(recipe_name, all_recipe_names, limit=10)
+        # all_recipe_names = df_recipes["name"].tolist()
+        # top_matches = process.extract(recipe_name, all_recipe_names, limit=10)
+        top_matches = process.extract(recipe_name, ALL_RECIPE_NAMES, limit=10)
+
         logger.debug(f"Recipe search for '{recipe_name}': found {len(top_matches)} top matches")
         
         if not top_matches:
             msg = f"Sorry, I couldn't find the recipe '{recipe_name}'. Try another recipe or search by ingredients."
-            dispatcher.utter_message(msg)
+            dispatcher.utter_message(text=msg)
             logger.warning(f"Recipe not found: {recipe_name}")
             return [SlotSet("recipe_valid", False)]
         
@@ -179,7 +187,7 @@ class ActionGetIngredients(Action):
         
         # None of the top 10 matches respect the restrictions
         dispatcher.utter_message(
-            f"Sorry, I couldn't find a recipe matching '{recipe_name}' that respects your dietary restrictions: {restrictions}. Try a different recipe or adjust your restrictions."
+            text=f"Sorry, I couldn't find a recipe matching '{recipe_name}' that respects your dietary restrictions: {restrictions}. Try a different recipe or adjust your restrictions."
         )
         logger.warning(f"No recipes matching '{recipe_name}' found with restrictions: {restrictions}")
         return [SlotSet("recipe_valid", False)]
@@ -205,7 +213,7 @@ class ActionGetInstructions(Action):
 
         if recipe_row.empty:
             msg = f"Sorry, I couldn't find the recipe '{recipe_name}'."
-            dispatcher.utter_message(msg)
+            dispatcher.utter_message(text=msg)
             logger.error(f"Recipe not found during instructions: {recipe_name}")
             return [SlotSet("recipe_valid", False)]
 
@@ -216,7 +224,7 @@ class ActionGetInstructions(Action):
         
         if not recipe_matches_restrictions(recipe_series, restrictions):
             msg = f"The recipe '{recipe_name}' does not respect your dietary restrictions: {restrictions}."
-            dispatcher.utter_message(msg)
+            dispatcher.utter_message(text=msg)
             logger.warning(f"Recipe '{recipe_name}' rejected due to dietary restrictions")
             return [SlotSet("recipe_valid", False)]
 
@@ -245,7 +253,7 @@ class ActionUtterRecipeComplete(Action):
         if closest_match:
             recipe_name = closest_match[0]
         
-        dispatcher.utter_message(f"Enjoy cooking {recipe_name}!")
+        dispatcher.utter_message(text=f"Enjoy cooking {recipe_name}!")
         logger.info(f"Recipe completion message shown for {recipe_name}")
         return [SlotSet("recipe", recipe_name)]
 
@@ -254,67 +262,136 @@ class ActionSuggestRecipes(Action):
     def name(self) -> Text:
         return "action_suggest_recipes"
 
-    def run(self, dispatcher, tracker, domain) -> List[Dict[Text, Any]]:
+    @staticmethod
+    def _filter_user_ingredients(user_ings: List[str], restrictions: str) -> List[str]:
+        """
+        Remove ingredients from USER input that are forbidden according to restrictions.
+        Uses the same forbidden_map logic as recipe_matches_restrictions.
+        """
+
+        if not restrictions or str(restrictions).lower() == "no":
+            return user_ings
+
+        restrictions_list = parse_restrictions(str(restrictions))
+
+        forbidden_map = {
+            "vegetarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey", "fish", "shrimp", "gelatin"],
+            "vegan": ["milk", "cheese", "egg", "butter", "honey", "cream", "yogurt", "whey", "chicken", "beef", "pork", "fish", "lard"],
+            "halal": ["pork", "bacon", "ham", "lard", "gelatin", "alcohol", "wine", "beer"],
+            "gluten-free": ["flour", "wheat", "barley", "rye", "bread", "pasta", "couscous", "semolina", "malt"],
+            "dairy-free": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "casein", "lactose"],
+            "pescatarian": ["chicken", "beef", "pork", "bacon", "steak", "lamb", "duck", "turkey"],
+            "nut-free": ["peanut", "almond", "walnut", "cashew", "pecan", "hazelnut", "pistachio"],
+            "lactose-intolerant": ["milk", "cheese", "butter", "cream", "yogurt", "whey", "curds", "lactose", "casein", "malted milk"],
+            "kosher": ["pork", "bacon", "ham", "lard", "rabbit", "gelatin", "shrimp", "crab", "lobster"]
+        }
+
+        filtered = user_ings.copy()
+
+        for user_restriction in restrictions_list:
+            matched_restriction = process.extractOne(user_restriction, forbidden_map.keys())
+
+            if matched_restriction and matched_restriction[1] >= 75:
+                restriction_key = matched_restriction[0]
+                forbidden_list = forbidden_map[restriction_key]
+
+                filtered = [
+                    ing for ing in filtered
+                    if not any(
+                        fuzz.partial_ratio(forbidden.lower(), ing.lower()) >= 70
+                        for forbidden in forbidden_list
+                    )
+                ]
+
+        return filtered
+
+    def run(self, dispatcher, tracker, domain):
+
         global closest_match
-        closest_match = None  # Reset when suggesting recipes (will be set when user picks one)
+        closest_match = None
 
         restrictions = tracker.get_slot("dietary_restrictions") or "no"
-
         user_text = tracker.get_slot("ingredients")
+
         if not user_text:
-            dispatcher.utter_message("Please tell me the ingredients you have.")
+            dispatcher.utter_message(text="Please tell me the ingredients you have.")
             return []
 
-        user_ingredients = [i.strip().lower() for i in user_text.split(",")]
+        user_ingredients = [i.strip().lower() for i in user_text.split(",") if i.strip()]
 
-        user_set = set(user_ingredients)
+        # 🔥 Filtrage générique basé sur forbidden_map
+        filtered_user_ingredients = self._filter_user_ingredients(user_ingredients, restrictions)
 
-        threshold = 60  # Seuil pour le score minimale acceptable (pour selectionner le recipe ayant le plus d'ingredients en commun avec ce que l'utilisateur dispose déja)
+        if not filtered_user_ingredients:
+            dispatcher.utter_message(
+                text="All provided ingredients conflict with your dietary restrictions. Please provide different ingredients."
+            )
+            return []
+
+        user_text_for_match = ",".join(filtered_user_ingredients)
+        user_set = set(filtered_user_ingredients)
+
+        # --- FAST candidate retrieval ---
+        # ingredients_texts = (
+        #     df_recipes["ingredients_text"]
+        #     .fillna("")
+        #     .astype(str)
+        #     .str.lower()
+        #     .tolist()
+        # )
+
+        # candidates = process.extract(
+        #     user_text_for_match,
+        #     ingredients_texts,
+        #     scorer=fuzz.WRatio,
+        #     limit=1200
+        # )
+        candidates = process.extract(
+                user_text_for_match,
+                INGREDIENTS_TEXTS,
+                scorer=fuzz.WRatio,
+                limit=1200
+            )
+
 
         matched_recipes = []
-        for _, row in df_recipes.iterrows():
 
-            # On élimine les recipes contenant des ingredients interdites pour l'utilisateur (s'il a des restrictions alimentaires)
+        for _, base_score, idx in candidates:
+
+            if base_score < 35:
+                continue
+
+            row = df_recipes.iloc[idx]
+
             if not recipe_matches_restrictions(row, restrictions):
                 continue
 
+            recipe_text = row["ingredients_text"].lower()
             recipe_ingredients = row["ingredients_list"]
-            recipe_text = row["ingredients_text"]
 
-            if not recipe_ingredients:
-                continue
-
-            # 3 scorers utiles en "texte vs texte"
-            score_token_set = fuzz.token_set_ratio(user_text, recipe_text)
-            score_partial = fuzz.partial_ratio(user_text, recipe_text)
+            score_token_set = fuzz.token_set_ratio(user_text_for_match, recipe_text)
+            score_partial = fuzz.partial_ratio(user_text_for_match, recipe_text)
             score = max(score_token_set, score_partial)
 
-            if score >= threshold:
-                missing = set(recipe_ingredients) - user_set # compter les ingredients manquants
-                matched_recipes.append(
-                    (row["name"], score, len(missing))
-                )
-
+            if score >= 60:
+                missing = set(recipe_ingredients) - user_set
+                matched_recipes.append((row["name"], score, len(missing)))
 
         if not matched_recipes:
-            msg = "Sorry, I couldn't find any recipes with those ingredients. Try different ingredients or adjust your dietary restrictions."
-            dispatcher.utter_message(msg)
-            logger.info(f"No recipes found for ingredients: {user_text}")
+            dispatcher.utter_message(
+                text="Sorry, I couldn't find any recipes with those ingredients. Try different ingredients or adjust your dietary restrictions."
+            )
             return []
 
-        # Sort by matching score (highest first) and take top 5
         matched_recipes.sort(key=lambda x: x[1], reverse=True)
         top = matched_recipes[:5]
-        
-        # Extract just the recipe names for storing in slot
-        recipe_names = [name for name, score, missing_count in top]
-        suggested_recipes_json = json.dumps(recipe_names)
-        
+
+        recipe_names = [name for name, _, _ in top]
+
         msg = "Here are some recipes you can make with your ingredients:\n"
         for i, (name, score, missing_count) in enumerate(top, 1):
             msg += f"{i}. {name} ({missing_count} ingredient(s) missing)\n"
-        msg += "\nType the number (1-5) of the recipe you want to cook."
-        
-        dispatcher.utter_message(msg)
-        logger.info(f"Found {len(top)} matching recipes for ingredients")
-        return [SlotSet("suggested_recipes", suggested_recipes_json)]
+
+        dispatcher.utter_message(text=msg)
+
+        return [SlotSet("suggested_recipes", json.dumps(recipe_names))]

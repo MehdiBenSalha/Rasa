@@ -12,6 +12,7 @@
 
 action_endpoint:
   actions_module: "actions"
+  timeout: 120
 
 # Tracker store which is used to store the conversations.
 # By default the conversations are stored in memory.
